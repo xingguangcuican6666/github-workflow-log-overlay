@@ -1,0 +1,41 @@
+# Maintainer: xingguangcuican6666
+pkgname=github-workflow-log-overlay
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Floating overlay for GitHub Actions workflow logs'
+arch=('x86_64')
+url='https://github.com/xingguangcuican6666/github-workflow-log-overlay'
+license=('MIT')
+depends=('webkit2gtk-4.1' 'gtk3' 'libayatana-appindicator' 'librsvg' 'github-cli')
+makedepends=('nodejs' 'npm' 'rust')
+source=()
+sha256sums=()
+
+build() {
+  cd "$startdir/../.."
+
+  export CARGO_TARGET_DIR="$srcdir/cargo-target"
+  export npm_config_cache="${npm_config_cache:-$srcdir/npm-cache}"
+
+  if [[ -d node_modules ]]; then
+    echo "Reusing existing node_modules for local Arch package build."
+  else
+    npm ci --prefer-offline --no-audit --fund=false
+  fi
+
+  npm test
+  npm run tauri -- build --no-bundle
+}
+
+package() {
+  cd "$startdir/../.."
+
+  install -Dm755 "$srcdir/cargo-target/release/github-workflow-log-overlay" \
+    "$pkgdir/usr/bin/github-workflow-log-overlay"
+  install -Dm644 packaging/linux/dev.github-overlay.workflow-log.desktop \
+    "$pkgdir/usr/share/applications/dev.github-overlay.workflow-log.desktop"
+  install -Dm644 src-tauri/icons/128x128.png \
+    "$pkgdir/usr/share/icons/hicolor/128x128/apps/dev.github-overlay.workflow-log.png"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

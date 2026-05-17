@@ -4,11 +4,12 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --host 127.0.0.1 --port 1420",
-    "build": "tsc && vite build",
-    "preview": "vite preview",
-    "test": "vitest run",
-    "tauri": "tauri"
+    "dev": "node node_modules/vite/bin/vite.js --host 127.0.0.1 --port 1420",
+    "build": "node node_modules/typescript/bin/tsc && node node_modules/vite/bin/vite.js build",
+    "preview": "node node_modules/vite/bin/vite.js preview",
+    "test": "node node_modules/vitest/vitest.mjs run",
+    "package:linux-portable": "bash scripts/package-linux-portable.sh",
+    "tauri": "node node_modules/@tauri-apps/cli/tauri.js"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",

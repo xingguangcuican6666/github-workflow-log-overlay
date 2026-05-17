@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=GitHub Workflow Log Overlay
+Comment=Floating overlay for GitHub Actions workflow logs
+Exec=github-workflow-log-overlay
+Icon=dev.github-overlay.workflow-log
+Terminal=false
+Categories=Development;Utility;
+StartupNotify=true
+

@@ -44,6 +44,21 @@ struct WorkflowLogResponse {
     warning: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct JobsResponse {
+    jobs: Vec<JobInfo>,
+}
+
+#[derive(Debug, Deserialize)]
+struct JobInfo {
+    id: u64,
+    name: String,
+    status: String,
+    conclusion: Option<String>,
+    started_at: Option<String>,
+    completed_at: Option<String>,
+}
+
 fn command_text(output: &[u8]) -> String {
     String::from_utf8_lossy(output).trim().to_string()
 }
@@ -105,7 +120,10 @@ fn gh_status_blocking() -> GhStatus {
             };
             (output.status.success(), Some(message))
         }
-        Err(error) => (false, Some(format!("Failed to check gh auth status: {error}"))),
+        Err(error) => (
+            false,
+            Some(format!("Failed to check gh auth status: {error}")),
+        ),
     };
 
     GhStatus {
@@ -116,10 +134,80 @@ fn gh_status_blocking() -> GhStatus {
     }
 }
 
+fn fetch_job_logs(repo: &str, run_id: u64) -> Result<WorkflowLogResponse, String> {
+    let jobs_endpoint = format!("repos/{repo}/actions/runs/{run_id}/jobs?per_page=100");
+    let jobs_args = vec!["api".to_string(), jobs_endpoint];
+    let jobs_json = run_gh(&jobs_args)?;
+    let jobs_response: JobsResponse = serde_json::from_str(&jobs_json)
+        .map_err(|error| format!("Failed to parse workflow jobs output: {error}"))?;
+
+    if jobs_response.jobs.is_empty() {
+        return Ok(WorkflowLogResponse {
+            run: None,
+            log: String::new(),
+            warning: Some("Run found, but no jobs are available yet.".to_string()),
+        });
+    }
+
+    let mut combined_log = String::new();
+    let mut unavailable = Vec::new();
+
+    for job in jobs_response.jobs {
+        let state = job.conclusion.as_deref().unwrap_or(&job.status);
+        let job_name = job.name;
+        combined_log.push_str(&format!("\n===== Job: {} ({state}) =====\n", job_name));
+
+        if let Some(started_at) = &job.started_at {
+            combined_log.push_str(&format!("started_at: {started_at}\n"));
+        }
+
+        if let Some(completed_at) = &job.completed_at {
+            combined_log.push_str(&format!("completed_at: {completed_at}\n"));
+        }
+
+        let log_endpoint = format!("repos/{repo}/actions/jobs/{}/logs", job.id);
+        let log_args = vec!["api".to_string(), log_endpoint];
+
+        match run_gh(&log_args) {
+            Ok(job_log) if !job_log.trim().is_empty() => {
+                combined_log.push_str(&job_log);
+                combined_log.push('\n');
+            }
+            Ok(_) => {
+                unavailable.push(job_name.clone());
+                combined_log.push_str("Log is not available for this job yet.\n");
+            }
+            Err(error) => {
+                unavailable.push(job_name.clone());
+                combined_log.push_str(&format!("Log is not available for this job yet: {error}\n"));
+            }
+        }
+    }
+
+    let warning = if unavailable.is_empty() {
+        None
+    } else {
+        Some(format!(
+            "Live logs are partial; unavailable jobs: {}.",
+            unavailable.join(", ")
+        ))
+    };
+
+    Ok(WorkflowLogResponse {
+        run: None,
+        log: combined_log.trim_start().to_string(),
+        warning,
+    })
+}
+
 fn fetch_workflow_log_blocking(request: FetchRequest) -> Result<WorkflowLogResponse, String> {
     let repo = request.repo.trim();
     let workflow = request.workflow.trim();
-    let branch = request.branch.as_deref().map(str::trim).filter(|value| !value.is_empty());
+    let branch = request
+        .branch
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
 
     if repo.is_empty() || !repo.contains('/') {
         return Err("Repository must use owner/repo format.".to_string());
@@ -174,11 +262,18 @@ fn fetch_workflow_log_blocking(request: FetchRequest) -> Result<WorkflowLogRespo
             log,
             warning: None,
         }),
-        Err(error) => Ok(WorkflowLogResponse {
-            run: Some(run),
-            log: String::new(),
-            warning: Some(format!("Run found, but logs are not available yet: {error}")),
-        }),
+        Err(error) => {
+            let live_logs = fetch_job_logs(repo, run.database_id)?;
+            Ok(WorkflowLogResponse {
+                run: Some(run),
+                log: live_logs.log,
+                warning: live_logs.warning.or_else(|| {
+                    Some(format!(
+                        "Using job-level live logs because run-level logs are not available yet: {error}"
+                    ))
+                }),
+            })
+        }
     }
 }
 
@@ -202,4 +297,3 @@ fn main() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
-
