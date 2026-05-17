@@ -63,6 +63,224 @@ fn command_text(output: &[u8]) -> String {
     String::from_utf8_lossy(output).trim().to_string()
 }
 
+fn strip_control_sequences(input: &str) -> String {
+    let bytes = input.as_bytes();
+    let mut output = String::with_capacity(input.len());
+    let mut index = 0;
+
+    while index < bytes.len() {
+        if bytes[index] == 0x1b {
+            index += 1;
+
+            if index >= bytes.len() {
+                break;
+            }
+
+            match bytes[index] {
+                b'[' => {
+                    index += 1;
+                    while index < bytes.len() {
+                        let byte = bytes[index];
+                        index += 1;
+                        if (0x40..=0x7e).contains(&byte) {
+                            break;
+                        }
+                    }
+                }
+                b']' => {
+                    index += 1;
+                    while index < bytes.len() {
+                        if bytes[index] == 0x07 {
+                            index += 1;
+                            break;
+                        }
+
+                        if bytes[index] == 0x1b
+                            && index + 1 < bytes.len()
+                            && bytes[index + 1] == b'\\'
+                        {
+                            index += 2;
+                            break;
+                        }
+
+                        index += 1;
+                    }
+                }
+                b'P' | b'^' | b'_' | b'X' => {
+                    index += 1;
+                    while index + 1 < bytes.len() {
+                        if bytes[index] == 0x1b && bytes[index + 1] == b'\\' {
+                            index += 2;
+                            break;
+                        }
+
+                        index += 1;
+                    }
+                }
+                _ => {
+                    index += 1;
+                }
+            }
+
+            continue;
+        }
+
+        if let Some(character) = input[index..].chars().next() {
+            output.push(character);
+            index += character.len_utf8();
+        } else {
+            break;
+        }
+    }
+
+    output
+}
+
+fn has_github_timestamp_prefix(value: &str) -> bool {
+    let bytes = value.as_bytes();
+
+    bytes.len() >= 20
+        && bytes[0].is_ascii_digit()
+        && bytes[1].is_ascii_digit()
+        && bytes[2].is_ascii_digit()
+        && bytes[3].is_ascii_digit()
+        && bytes[4] == b'-'
+        && bytes[5].is_ascii_digit()
+        && bytes[6].is_ascii_digit()
+        && bytes[7] == b'-'
+        && bytes[8].is_ascii_digit()
+        && bytes[9].is_ascii_digit()
+        && bytes[10] == b'T'
+        && bytes[11].is_ascii_digit()
+        && bytes[12].is_ascii_digit()
+        && bytes[13] == b':'
+        && bytes[14].is_ascii_digit()
+        && bytes[15].is_ascii_digit()
+        && bytes[16] == b':'
+        && bytes[17].is_ascii_digit()
+        && bytes[18].is_ascii_digit()
+}
+
+fn strip_leading_github_timestamp(value: &str) -> Option<&str> {
+    let trimmed = value.trim_start();
+
+    if !has_github_timestamp_prefix(trimmed) {
+        return None;
+    }
+
+    let timestamp_end = trimmed
+        .as_bytes()
+        .iter()
+        .take(40)
+        .position(|byte| *byte == b'Z')?;
+
+    if trimmed
+        .as_bytes()
+        .get(timestamp_end + 1)
+        .is_some_and(|byte| !byte.is_ascii_whitespace())
+    {
+        return None;
+    }
+
+    Some(trimmed[timestamp_end + 1..].trim_start())
+}
+
+fn is_noise_log_line(line: &str) -> bool {
+    const NOISE_NEEDLES: &[&str] = &[
+        "/github/runner_temp/git-credentials",
+        "/home/runner/work/_temp/git-credentials",
+        "git-credentials-",
+        "git config --local --unset includeif.gitdir:",
+        "git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url",
+        "Removing credentials config",
+        "Cleaning up orphan processes",
+        "Terminate orphan process:",
+        "Current runner version:",
+        "Runner name:",
+        "Runner group name:",
+        "Machine name:",
+        "Runner Image Provisioner",
+        "Operating System",
+        "Runner Image",
+        "Image Version",
+        "Included Software",
+        "Image Release",
+        "GITHUB_TOKEN Permissions",
+        "Secret source:",
+        "Prepare workflow directory",
+        "Prepare all required actions",
+        "Getting action download info",
+        "Download action repository",
+        "Complete job name:",
+        "Set up job",
+        "Post job cleanup.",
+    ];
+
+    let trimmed = line.trim();
+
+    if trimmed == "##[endgroup]" || trimmed == "##[group]" {
+        return true;
+    }
+
+    if trimmed.starts_with("##[group]Run actions/checkout@")
+        || trimmed.starts_with("##[group]Run actions/setup-")
+        || trimmed.starts_with("##[group]Runner Image")
+    {
+        return true;
+    }
+
+    NOISE_NEEDLES.iter().any(|needle| trimmed.contains(needle))
+}
+
+fn compact_log_line(line: &str) -> String {
+    let mut fields = line.splitn(3, '\t');
+
+    if let (Some(_job), Some(step), Some(message)) = (fields.next(), fields.next(), fields.next()) {
+        if let Some(message) = strip_leading_github_timestamp(message) {
+            let step = step.trim();
+
+            if step.is_empty() || step == "UNKNOWN STEP" {
+                return message.to_string();
+            }
+
+            return format!("{step} | {message}");
+        }
+    }
+
+    strip_leading_github_timestamp(line)
+        .unwrap_or(line)
+        .to_string()
+}
+
+fn clean_log_line(line: &str) -> Option<String> {
+    let stripped = strip_control_sequences(line)
+        .trim_start_matches('\u{feff}')
+        .trim_end()
+        .to_string();
+
+    if stripped.trim().is_empty() || is_noise_log_line(&stripped) {
+        return None;
+    }
+
+    let compacted = compact_log_line(&stripped);
+    let compacted = compacted.trim().to_string();
+
+    if compacted.is_empty() || is_noise_log_line(&compacted) {
+        return None;
+    }
+
+    Some(compacted)
+}
+
+fn sanitize_log(log: &str) -> String {
+    log.replace("\r\n", "\n")
+        .replace('\r', "\n")
+        .lines()
+        .filter_map(clean_log_line)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn run_gh(args: &[String]) -> Result<String, String> {
     let output = Command::new("gh").args(args).output().map_err(|error| {
         if error.kind() == io::ErrorKind::NotFound {
@@ -170,6 +388,7 @@ fn fetch_job_logs(repo: &str, run_id: u64) -> Result<WorkflowLogResponse, String
 
         match run_gh(&log_args) {
             Ok(job_log) if !job_log.trim().is_empty() => {
+                let job_log = sanitize_log(&job_log);
                 combined_log.push_str(&job_log);
                 combined_log.push('\n');
             }
@@ -195,7 +414,7 @@ fn fetch_job_logs(repo: &str, run_id: u64) -> Result<WorkflowLogResponse, String
 
     Ok(WorkflowLogResponse {
         run: None,
-        log: combined_log.trim_start().to_string(),
+        log: combined_log.trim_start().trim_end().to_string(),
         warning,
     })
 }
@@ -259,7 +478,7 @@ fn fetch_workflow_log_blocking(request: FetchRequest) -> Result<WorkflowLogRespo
     match run_gh(&view_args) {
         Ok(log) => Ok(WorkflowLogResponse {
             run: Some(run),
-            log,
+            log: sanitize_log(&log),
             warning: None,
         }),
         Err(error) => {

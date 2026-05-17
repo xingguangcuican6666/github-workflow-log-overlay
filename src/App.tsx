@@ -40,6 +40,9 @@ type Settings = {
 type FetchState = "idle" | "loading" | "ok" | "error";
 
 const STORAGE_KEY = "github-workflow-log-overlay.settings";
+const MAX_VISIBLE_LINES = 900;
+const MAX_QUEUE_LINES = 1200;
+const STREAM_INTERVAL_MS = 80;
 const DEFAULT_SETTINGS: Settings = {
   repo: "",
   workflow: "",
@@ -98,7 +101,8 @@ export default function App() {
   const [autoScroll, setAutoScroll] = useState(true);
   const lastRunId = useRef<number | null>(null);
   const rawLinesRef = useRef<string[]>([]);
-  const bottomRef = useRef<HTMLDivElement | null>(null);
+  const logPaneRef = useRef<HTMLElement | null>(null);
+  const scrollFrameRef = useRef<number | null>(null);
   const fetchingRef = useRef(false);
 
   const canFetch = settings.repo.trim().includes("/") && settings.workflow.trim().length > 0;
@@ -137,21 +141,37 @@ export default function App() {
           return currentQueue;
         }
 
-        const batchSize = currentQueue.length > 80 ? 10 : 3;
+        const batchSize = currentQueue.length > 600 ? 120 : currentQueue.length > 120 ? 60 : 24;
         const nextBatch = currentQueue.slice(0, batchSize);
-        setVisibleLines((currentVisible) => [...currentVisible, ...nextBatch].slice(-4000));
+        setVisibleLines((currentVisible) => [...currentVisible, ...nextBatch].slice(-MAX_VISIBLE_LINES));
         return currentQueue.slice(batchSize);
       });
-    }, 45);
+    }, STREAM_INTERVAL_MS);
 
     return () => window.clearInterval(timer);
   }, [queuedLines.length]);
 
   useEffect(() => {
-    if (autoScroll) {
-      bottomRef.current?.scrollIntoView({ block: "end" });
+    if (!autoScroll) return;
+
+    if (scrollFrameRef.current !== null) {
+      window.cancelAnimationFrame(scrollFrameRef.current);
     }
-  }, [visibleLines, autoScroll]);
+
+    scrollFrameRef.current = window.requestAnimationFrame(() => {
+      const logPane = logPaneRef.current;
+      if (logPane) {
+        logPane.scrollTop = logPane.scrollHeight;
+      }
+    });
+
+    return () => {
+      if (scrollFrameRef.current !== null) {
+        window.cancelAnimationFrame(scrollFrameRef.current);
+        scrollFrameRef.current = null;
+      }
+    };
+  }, [visibleLines.length, autoScroll]);
 
   const fetchLogs = async () => {
     if (!canFetch || fetchingRef.current) return;
@@ -177,9 +197,9 @@ export default function App() {
 
       if (diff.reset) {
         setVisibleLines([]);
-        setQueuedLines(diff.added.slice(-4000));
+        setQueuedLines(diff.added.slice(-MAX_VISIBLE_LINES));
       } else if (diff.added.length) {
-        setQueuedLines((currentQueue) => [...currentQueue, ...diff.added].slice(-4000));
+        setQueuedLines((currentQueue) => [...currentQueue, ...diff.added].slice(-MAX_QUEUE_LINES));
       }
 
       lastRunId.current = nextRunId;
@@ -346,7 +366,7 @@ export default function App() {
         {error ? <div className="message error">{error}</div> : null}
         {!canFetch ? <div className="message info">Set repository and workflow to start polling.</div> : null}
 
-        <section className="log-pane" aria-label="Workflow logs">
+        <section className="log-pane" ref={logPaneRef} aria-label="Workflow logs">
           {visibleLines.length ? (
             visibleLines.map((line, index) => (
               <div className="log-line" key={`${index}-${line.slice(0, 24)}`}>
@@ -357,7 +377,6 @@ export default function App() {
           ) : (
             <div className="empty-log">No log output yet.</div>
           )}
-          <div ref={bottomRef} />
         </section>
       </section>
     </main>

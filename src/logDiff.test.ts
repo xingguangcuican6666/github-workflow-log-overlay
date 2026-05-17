@@ -9,6 +9,13 @@ describe("splitLog", () => {
   it("returns no lines for empty output", () => {
     expect(splitLog(" \n\t")).toEqual([]);
   });
+
+  it("strips ANSI and OSC control sequences", () => {
+    expect(splitLog("\u001b[32mok\u001b[0m\n\u001b]8;;https://example.com\u0007link\u001b]8;;\u0007")).toEqual([
+      "ok",
+      "link"
+    ]);
+  });
 });
 
 describe("diffLogLines", () => {
@@ -33,4 +40,3 @@ describe("diffLogLines", () => {
     });
   });
 });
-
