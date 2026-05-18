@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use std::io;
 use std::process::Command;
 
+const MAX_RETURNED_LOG_LINES: usize = 1_200;
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct GhStatus {
@@ -272,13 +274,24 @@ fn clean_log_line(line: &str) -> Option<String> {
     Some(compacted)
 }
 
-fn sanitize_log(log: &str) -> String {
+fn sanitize_log_lines(log: &str) -> Vec<String> {
     log.replace("\r\n", "\n")
         .replace('\r', "\n")
         .lines()
         .filter_map(clean_log_line)
-        .collect::<Vec<_>>()
-        .join("\n")
+        .collect()
+}
+
+fn tail_log_lines(mut lines: Vec<String>, max_lines: usize) -> Vec<String> {
+    if lines.len() <= max_lines {
+        return lines;
+    }
+
+    lines.split_off(lines.len() - max_lines)
+}
+
+fn sanitize_log(log: &str) -> String {
+    tail_log_lines(sanitize_log_lines(log), MAX_RETURNED_LOG_LINES).join("\n")
 }
 
 fn run_gh(args: &[String]) -> Result<String, String> {

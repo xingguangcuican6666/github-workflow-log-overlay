@@ -40,9 +40,9 @@ type Settings = {
 type FetchState = "idle" | "loading" | "ok" | "error";
 
 const STORAGE_KEY = "github-workflow-log-overlay.settings";
-const MAX_VISIBLE_LINES = 900;
-const MAX_QUEUE_LINES = 1200;
-const STREAM_INTERVAL_MS = 80;
+const MAX_VISIBLE_LINES = 700;
+const MAX_QUEUE_LINES = 900;
+const STREAM_INTERVAL_MS = 120;
 const DEFAULT_SETTINGS: Settings = {
   repo: "",
   workflow: "",
@@ -106,6 +106,7 @@ export default function App() {
   const fetchingRef = useRef(false);
 
   const canFetch = settings.repo.trim().includes("/") && settings.workflow.trim().length > 0;
+  const visibleLogText = useMemo(() => visibleLines.join("\n"), [visibleLines]);
 
   const appStyle = useMemo(
     () => ({ "--overlay-opacity": `${settings.opacity / 100}` }) as React.CSSProperties,
@@ -141,7 +142,7 @@ export default function App() {
           return currentQueue;
         }
 
-        const batchSize = currentQueue.length > 600 ? 120 : currentQueue.length > 120 ? 60 : 24;
+        const batchSize = currentQueue.length > 400 ? 180 : currentQueue.length > 100 ? 90 : 40;
         const nextBatch = currentQueue.slice(0, batchSize);
         setVisibleLines((currentVisible) => [...currentVisible, ...nextBatch].slice(-MAX_VISIBLE_LINES));
         return currentQueue.slice(batchSize);
@@ -368,12 +369,7 @@ export default function App() {
 
         <section className="log-pane" ref={logPaneRef} aria-label="Workflow logs">
           {visibleLines.length ? (
-            visibleLines.map((line, index) => (
-              <div className="log-line" key={`${index}-${line.slice(0, 24)}`}>
-                <span className="line-number">{index + 1}</span>
-                <span className="line-text">{line || " "}</span>
-              </div>
-            ))
+            <pre className="log-text">{visibleLogText}</pre>
           ) : (
             <div className="empty-log">No log output yet.</div>
           )}

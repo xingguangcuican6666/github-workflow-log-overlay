@@ -39,4 +39,14 @@ describe("diffLogLines", () => {
       added: ["one", "changed", "three"]
     });
   });
+
+  it("continues when a tail window rolls forward", () => {
+    const previous = Array.from({ length: 40 }, (_, index) => `line-${index}`);
+    const next = Array.from({ length: 40 }, (_, index) => `line-${index + 10}`);
+
+    expect(diffLogLines(previous, next)).toEqual({
+      reset: false,
+      added: Array.from({ length: 10 }, (_, index) => `line-${index + 40}`)
+    });
+  });
 });

@@ -246,7 +246,7 @@ input:focus {
     linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
     rgba(1, 6, 6, 0.58);
   background-size: 100% 24px;
-  padding: 0.65rem 0;
+  padding: 0.75rem 0.9rem;
   font-family: "JetBrains Mono", "Cascadia Code", "SFMono-Regular", monospace;
   font-size: 0.78rem;
   line-height: 1.5;
@@ -254,22 +254,10 @@ input:focus {
   scrollbar-color: rgba(120, 255, 202, 0.52) transparent;
 }
 
-.log-line {
-  display: grid;
-  grid-template-columns: 4.2rem minmax(0, 1fr);
-  gap: 0.75rem;
-  padding: 0 0.9rem;
-}
-
-.line-number {
-  color: rgba(120, 255, 202, 0.45);
-  text-align: right;
-  user-select: none;
-}
-
-.line-text {
-  min-width: 0;
+.log-text {
+  margin: 0;
   color: rgba(241, 255, 250, 0.9);
+  font: inherit;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -294,10 +282,5 @@ input:focus {
 
   .settings-panel {
     grid-template-columns: 1fr 1fr;
-  }
-
-  .log-line {
-    grid-template-columns: 3rem minmax(0, 1fr);
-    gap: 0.5rem;
   }
 }

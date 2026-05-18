@@ -19,14 +19,36 @@ export function splitLog(log: string): string[] {
     .split("\n");
 }
 
+function commonTailWindowOverlap(previous: string[], next: string[]): number {
+  const maxOverlap = Math.min(previous.length, next.length);
+  const minUsefulOverlap = Math.min(20, maxOverlap);
+
+  for (let size = maxOverlap; size >= minUsefulOverlap; size -= 1) {
+    let matches = true;
+
+    for (let index = 0; index < size; index += 1) {
+      if (previous[previous.length - size + index] !== next[index]) {
+        matches = false;
+        break;
+      }
+    }
+
+    if (matches) return size;
+  }
+
+  return 0;
+}
+
 export function diffLogLines(previous: string[], next: string[]): LogDiff {
   if (next.length < previous.length) {
-    return { reset: true, added: next };
+    const overlap = commonTailWindowOverlap(previous, next);
+    return overlap ? { reset: false, added: next.slice(overlap) } : { reset: true, added: next };
   }
 
   for (let index = 0; index < previous.length; index += 1) {
     if (previous[index] !== next[index]) {
-      return { reset: true, added: next };
+      const overlap = commonTailWindowOverlap(previous, next);
+      return overlap ? { reset: false, added: next.slice(overlap) } : { reset: true, added: next };
     }
   }
 
